@@ -1,0 +1,55 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+.venv
+pip-log.txt
+pip-delete-this-directory.txt
+.pytest_cache/
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Project specific
+*.db
+*.sqlite
+*.log
+.env
+.code_assistant_history
+
+# Model files
+models/**/*.bin
+models/**/*.safetensors
+models/**/*.gguf
+models/**/*.pth
+
+# Data
+data/raw/
+data/filtered/
+*.jsonl
+
+# Distribution
+dist/
+build/
+*.egg-info/
+
+# Node (for extension)
+node_modules/
+extension/out/
+extension/dist/
