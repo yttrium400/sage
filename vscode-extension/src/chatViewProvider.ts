@@ -5,15 +5,27 @@
 import * as vscode from 'vscode';
 import { CodeAssistantService, AssistantResponse } from './codeAssistantService';
 
+interface ChatMessage {
+    role: 'user' | 'assistant' | 'system';
+    content: string;
+    timestamp: number;
+}
+
 export class ChatViewProvider implements vscode.WebviewViewProvider {
     public static readonly viewType = 'codeAssistant.chatView';
 
     private _view?: vscode.WebviewView;
+    private _context: vscode.ExtensionContext;
+    private _chatHistory: ChatMessage[] = [];
 
     constructor(
         private readonly _extensionUri: vscode.Uri,
-        private readonly _assistantService: CodeAssistantService
-    ) {}
+        private readonly _assistantService: CodeAssistantService,
+        context: vscode.ExtensionContext
+    ) {
+        this._context = context;
+        this._loadChatHistory();
+    }
 
     public resolveWebviewView(
         webviewView: vscode.WebviewView,
@@ -29,6 +41,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
         webviewView.webview.html = this._getHtmlForWebview(webviewView.webview);
 
+        // Restore chat history
+        this._restoreChatHistory();
+
         // Handle messages from the webview
         webviewView.webview.onDidReceiveMessage(async (data) => {
             switch (data.type) {
@@ -38,8 +53,20 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                 case 'applyCode':
                     await this.handleApplyCode(data.filename, data.code);
                     break;
+                case 'applyCodeWithDiff':
+                    await this.handleApplyCodeWithDiff(data.filename, data.code);
+                    break;
                 case 'indexWorkspace':
                     await this.handleIndexWorkspace();
+                    break;
+                case 'clearHistory':
+                    this.handleClearHistory();
+                    break;
+                case 'getModels':
+                    await this.handleGetModels();
+                    break;
+                case 'switchModel':
+                    await this.handleSwitchModel(data.model);
                     break;
             }
         });
@@ -61,6 +88,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         if (!this._view) {
             return;
         }
+
+        // Save user message to history
+        this._addToHistory('user', query);
 
         // Show user message in chat
         this._view.webview.postMessage({
@@ -89,6 +119,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                     });
                 },
                 (response: AssistantResponse) => {
+                    // Save assistant response to history
+                    this._addToHistory('assistant', fullResponse);
+
                     // Complete response received
                     this._view?.webview.postMessage({
                         type: 'assistantComplete',
@@ -194,6 +227,155 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         }
     }
 
+    private async handleApplyCodeWithDiff(filename: string | null, code: string) {
+        if (!filename) {
+            vscode.window.showWarningMessage('No filename specified for code block');
+            return;
+        }
+
+        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+        if (!workspaceFolder) {
+            vscode.window.showErrorMessage('No workspace folder open');
+            return;
+        }
+
+        try {
+            const fileUri = vscode.Uri.joinPath(workspaceFolder.uri, filename);
+
+            // Check if file exists
+            let fileExists = false;
+            let oldContent = '';
+            try {
+                const fileData = await vscode.workspace.fs.readFile(fileUri);
+                oldContent = new TextDecoder().decode(fileData);
+                fileExists = true;
+            } catch {
+                fileExists = false;
+            }
+
+            if (fileExists) {
+                // Show diff editor
+                const newUri = vscode.Uri.parse(`untitled:${filename}`);
+                const newDocument = await vscode.workspace.openTextDocument(newUri);
+                const edit = new vscode.WorkspaceEdit();
+                edit.insert(newUri, new vscode.Position(0, 0), code);
+                await vscode.workspace.applyEdit(edit);
+
+                await vscode.commands.executeCommand('vscode.diff',
+                    fileUri,
+                    newUri,
+                    `${filename} (Current ↔ Proposed)`
+                );
+
+                // Ask for confirmation
+                const action = await vscode.window.showInformationMessage(
+                    `Apply changes to ${filename}?`,
+                    { modal: true },
+                    'Apply',
+                    'Cancel'
+                );
+
+                if (action === 'Apply') {
+                    const encoder = new TextEncoder();
+                    await vscode.workspace.fs.writeFile(fileUri, encoder.encode(code));
+                    vscode.window.showInformationMessage(`Successfully updated ${filename}`);
+
+                    // Close diff editor
+                    await vscode.commands.executeCommand('workbench.action.closeActiveEditor');
+                }
+            } else {
+                // File doesn't exist, just create it
+                await this.handleApplyCode(filename, code);
+            }
+        } catch (error) {
+            vscode.window.showErrorMessage(
+                `Failed to show diff for ${filename}: ${error instanceof Error ? error.message : 'Unknown error'}`
+            );
+        }
+    }
+
+    private async handleGetModels() {
+        try {
+            const models = await this._assistantService.getAvailableModels();
+            this._view?.webview.postMessage({
+                type: 'modelsList',
+                models: models
+            });
+        } catch (error) {
+            this._view?.webview.postMessage({
+                type: 'error',
+                message: `Failed to get models: ${error instanceof Error ? error.message : 'Unknown error'}`
+            });
+        }
+    }
+
+    private async handleSwitchModel(model: string) {
+        const config = vscode.workspace.getConfiguration('sage');
+        await config.update('model', model, vscode.ConfigurationTarget.Global);
+
+        this._view?.webview.postMessage({
+            type: 'systemMessage',
+            content: `Switched to model: ${model}`
+        });
+    }
+
+    private handleClearHistory() {
+        this._chatHistory = [];
+        this._saveChatHistory();
+
+        this._view?.webview.postMessage({
+            type: 'clearChat'
+        });
+    }
+
+    private _loadChatHistory() {
+        const history = this._context.workspaceState.get<ChatMessage[]>('chatHistory', []);
+        this._chatHistory = history;
+    }
+
+    private _saveChatHistory() {
+        // Keep only last 50 messages
+        if (this._chatHistory.length > 50) {
+            this._chatHistory = this._chatHistory.slice(-50);
+        }
+        this._context.workspaceState.update('chatHistory', this._chatHistory);
+    }
+
+    private _restoreChatHistory() {
+        if (!this._view || this._chatHistory.length === 0) {
+            return;
+        }
+
+        // Send all messages to webview
+        for (const message of this._chatHistory) {
+            if (message.role === 'user') {
+                this._view.webview.postMessage({
+                    type: 'userMessage',
+                    content: message.content
+                });
+            } else if (message.role === 'assistant') {
+                this._view.webview.postMessage({
+                    type: 'assistantMessage',
+                    content: message.content
+                });
+            } else if (message.role === 'system') {
+                this._view.webview.postMessage({
+                    type: 'systemMessage',
+                    content: message.content
+                });
+            }
+        }
+    }
+
+    private _addToHistory(role: 'user' | 'assistant' | 'system', content: string) {
+        this._chatHistory.push({
+            role,
+            content,
+            timestamp: Date.now()
+        });
+        this._saveChatHistory();
+    }
+
     private _getHtmlForWebview(webview: vscode.Webview) {
         return `<!DOCTYPE html>
 <html lang="en">
@@ -253,6 +435,21 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         .header-button:hover {
             background-color: var(--vscode-toolbar-hoverBackground);
             opacity: 1;
+        }
+
+        .header-select {
+            background-color: var(--vscode-dropdown-background);
+            color: var(--vscode-dropdown-foreground);
+            border: 1px solid var(--vscode-dropdown-border);
+            border-radius: 4px;
+            padding: 4px 8px;
+            font-size: 11px;
+            cursor: pointer;
+            outline: none;
+        }
+
+        .header-select:focus {
+            border-color: var(--vscode-focusBorder);
         }
 
         .chat-container {
@@ -515,6 +712,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     <div class="header">
         <h2>🧙‍♂️ Sage Assistant</h2>
         <div class="header-actions">
+            <select id="modelSelector" class="header-select" onchange="switchModel(this.value)" title="Select Model">
+                <option value="">Loading models...</option>
+            </select>
             <button class="header-button" onclick="indexWorkspace()" title="Index Workspace">
                 ⟳ Index
             </button>
@@ -584,6 +784,15 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                 case 'error':
                     addErrorMessage(message.message);
                     hideTypingIndicator();
+                    break;
+                case 'clearChat':
+                    clearChatUI();
+                    break;
+                case 'modelsList':
+                    updateModelsList(message.models);
+                    break;
+                case 'assistantMessage':
+                    addAssistantMessage(message.content);
                     break;
             }
         });
@@ -698,6 +907,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                     <div class="code-block-title">\${escapeHtml(title)}</div>
                     <div class="code-block-actions">
                         <button class="code-action-btn" onclick="copyCode(this)">Copy</button>
+                        \${filename ? \`<button class="code-action-btn" onclick="viewDiff('\${escapeHtml(filename)}', this)">View Diff</button>\` : ''}
                         \${filename ? \`<button class="code-action-btn" onclick="applyCode('\${escapeHtml(filename)}', this)">Apply</button>\` : ''}
                     </div>
                 </div>
@@ -738,6 +948,22 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             }, 2000);
         }
 
+        function viewDiff(filename, button) {
+            const codeBlock = button.closest('.code-block');
+            const code = codeBlock.querySelector('code').textContent;
+
+            vscode.postMessage({
+                type: 'applyCodeWithDiff',
+                filename: filename,
+                code: code
+            });
+
+            button.textContent = 'Opening...';
+            setTimeout(() => {
+                button.textContent = 'View Diff';
+            }, 2000);
+        }
+
         function addSystemMessage(content) {
             const messageEl = document.createElement('div');
             messageEl.className = 'message system';
@@ -762,6 +988,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         }
 
         function clearChat() {
+            vscode.postMessage({ type: 'clearHistory' });
+        }
+
+        function clearChatUI() {
             while (chatContainer.firstChild) {
                 chatContainer.removeChild(chatContainer.firstChild);
             }
@@ -778,6 +1008,47 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             chatContainer.appendChild(emptyState);
         }
 
+        function switchModel(model) {
+            if (model) {
+                vscode.postMessage({ type: 'switchModel', model: model });
+            }
+        }
+
+        function updateModelsList(models) {
+            const select = document.getElementById('modelSelector');
+            select.innerHTML = '';
+
+            if (!models || models.length === 0) {
+                select.innerHTML = '<option value="">No models found</option>';
+                return;
+            }
+
+            models.forEach(model => {
+                const option = document.createElement('option');
+                option.value = model;
+                option.textContent = model;
+                select.appendChild(option);
+            });
+        }
+
+        function addAssistantMessage(content) {
+            const messageEl = document.createElement('div');
+            messageEl.className = 'message assistant';
+            messageEl.innerHTML = \`
+                <div class="message-header">Sage</div>
+                <div class="message-content">\${escapeHtml(content)}</div>
+            \`;
+            chatContainer.appendChild(messageEl);
+
+            // Remove empty state if present
+            const emptyState = chatContainer.querySelector('.empty-state');
+            if (emptyState) {
+                emptyState.remove();
+            }
+
+            scrollToBottom();
+        }
+
         function scrollToBottom() {
             chatContainer.scrollTop = chatContainer.scrollHeight;
         }
@@ -787,6 +1058,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             div.textContent = text;
             return div.innerHTML;
         }
+
+        // Load models on startup
+        vscode.postMessage({ type: 'getModels' });
 
         // Focus input on load
         queryInput.focus();

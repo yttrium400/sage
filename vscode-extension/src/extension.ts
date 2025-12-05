@@ -17,7 +17,7 @@ export function activate(context: vscode.ExtensionContext) {
     codeAssistantService = new CodeAssistantService(context);
 
     // Register chat view provider
-    chatViewProvider = new ChatViewProvider(context.extensionUri, codeAssistantService);
+    chatViewProvider = new ChatViewProvider(context.extensionUri, codeAssistantService, context);
 
     context.subscriptions.push(
         vscode.window.registerWebviewViewProvider(
