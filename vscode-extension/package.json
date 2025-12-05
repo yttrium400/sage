@@ -2,7 +2,7 @@
   "name": "sage-code-assistant",
   "displayName": "Sage Code Assistant",
   "description": "AI-powered Python coding assistant with local LLM and semantic search",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "publisher": "sage",
   "repository": {
     "type": "git",

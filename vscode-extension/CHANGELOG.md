@@ -2,6 +2,40 @@
 
 All notable changes to the Sage Code Assistant VSCode extension will be documented in this file.
 
+## [0.2.0] - 2024-12-05
+
+### Added
+- **Chat History Persistence**: Conversations now persist across VSCode sessions
+  - Last 50 messages are saved in workspace state
+  - Automatic restoration when chat is reopened
+  - Clear history with "✕ Clear" button
+- **Diff View**: Preview code changes before applying
+  - New "View Diff" button on all code blocks
+  - Side-by-side comparison using VSCode's native diff editor
+  - Confirmation prompt before applying changes
+- **Model Switcher**: Dropdown to switch between Ollama models
+  - Automatically loads available models on startup
+  - Persists selection in settings
+  - Real-time model switching without restart
+
+### Improved
+- **Error Handling**: More detailed and user-friendly error messages
+- **Loading States**: Better visual feedback during operations
+  - Animated typing indicator with dots
+  - Button state changes with confirmation
+  - Progress messages for indexing
+- **UX Polish**: Enhanced overall user experience
+  - Smooth fade-in animations for messages
+  - Better button hover and active states
+  - Auto-scroll to bottom on new messages
+  - Theme-aware styling throughout
+
+### Technical
+- Added `ChatMessage` interface for type-safe history
+- New methods: `handleApplyCodeWithDiff()`, `handleGetModels()`, `handleSwitchModel()`
+- Chat history uses VSCode workspace state API
+- Improved error boundaries and try-catch blocks
+
 ## [0.1.0] - 2024-11-21
 
 ### Added
