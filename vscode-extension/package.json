@@ -1,8 +1,13 @@
 {
-  "name": "code-assistant",
-  "displayName": "Code Assistant",
-  "description": "AI-powered coding assistant with futuristic UI",
+  "name": "sage-code-assistant",
+  "displayName": "Sage Code Assistant",
+  "description": "AI-powered Python coding assistant with local LLM and semantic search",
   "version": "0.1.0",
+  "publisher": "sage",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yttrium400/sage"
+  },
   "engines": {
     "vscode": "^1.80.0"
   },
@@ -10,6 +15,14 @@
     "Programming Languages",
     "Machine Learning",
     "Other"
+  ],
+  "keywords": [
+    "ai",
+    "code-assistant",
+    "python",
+    "ollama",
+    "local-llm",
+    "semantic-search"
   ],
   "activationEvents": [
     "onStartupFinished"
@@ -19,24 +32,31 @@
     "commands": [
       {
         "command": "codeAssistant.openChat",
-        "title": "Code Assistant: Open Chat",
+        "title": "Sage: Open Chat",
         "icon": "$(comment-discussion)"
       },
       {
         "command": "codeAssistant.explainCode",
-        "title": "Code Assistant: Explain Code"
+        "title": "Sage: Explain Code",
+        "icon": "$(question)"
       },
       {
         "command": "codeAssistant.generateCode",
-        "title": "Code Assistant: Generate Code"
+        "title": "Sage: Generate Code",
+        "icon": "$(sparkle)"
+      },
+      {
+        "command": "codeAssistant.refactorCode",
+        "title": "Sage: Refactor Code",
+        "icon": "$(tools)"
       }
     ],
     "viewsContainers": {
       "activitybar": [
         {
           "id": "codeAssistant",
-          "title": "Code Assistant",
-          "icon": "resources/icon.svg"
+          "title": "Sage Assistant",
+          "icon": "$(sparkle)"
         }
       ]
     },
@@ -49,25 +69,63 @@
         }
       ]
     },
+    "menus": {
+      "editor/context": [
+        {
+          "command": "codeAssistant.explainCode",
+          "when": "editorHasSelection",
+          "group": "sage@1"
+        },
+        {
+          "command": "codeAssistant.refactorCode",
+          "when": "editorHasSelection && editorLangId == python",
+          "group": "sage@2"
+        }
+      ]
+    },
     "keybindings": [
       {
         "command": "codeAssistant.openChat",
         "key": "ctrl+shift+a",
         "mac": "cmd+shift+a"
+      },
+      {
+        "command": "codeAssistant.explainCode",
+        "key": "ctrl+shift+e",
+        "mac": "cmd+shift+e",
+        "when": "editorHasSelection"
       }
-    ]
+    ],
+    "configuration": {
+      "title": "Sage Code Assistant",
+      "properties": {
+        "sage.model": {
+          "type": "string",
+          "default": "qwen2.5-coder:3b",
+          "description": "Ollama model to use for code generation"
+        },
+        "sage.pythonPath": {
+          "type": "string",
+          "default": "python3",
+          "description": "Path to Python executable"
+        }
+      }
+    }
   },
   "scripts": {
     "vscode:prepublish": "npm run build",
     "build": "webpack --mode production",
     "watch": "webpack --mode development --watch",
-    "lint": "eslint src --ext ts"
+    "compile": "tsc -p ./",
+    "lint": "eslint src --ext ts",
+    "package": "vsce package"
   },
   "devDependencies": {
     "@types/node": "^18.0.0",
     "@types/vscode": "^1.80.0",
     "@typescript-eslint/eslint-plugin": "^6.0.0",
     "@typescript-eslint/parser": "^6.0.0",
+    "@vscode/vsce": "^2.22.0",
     "eslint": "^8.0.0",
     "ts-loader": "^9.4.0",
     "typescript": "^5.0.0",
